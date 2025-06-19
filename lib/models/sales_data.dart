@@ -1,31 +1,31 @@
+// lib/models/sales_data.dart
+
+import 'dart:convert';
+
+// Fungsi buat nge-parse list dari JSON
+List<SalesData> salesDataFromJson(String str) => List<SalesData>.from(json.decode(str).map((x) => SalesData.fromJson(x)));
+
+// Fungsi buat nge-serialize list ke JSON (kalau butuh)
+String salesDataToJson(List<SalesData> data) => json.encode(List<dynamic>.from(data.map((x) => x.toJson())));
+
 class SalesData {
-  final String date;
-  final String month;
-  final String year;
-  final String product;
-  final String city;
-  final double sales;
-  final double profit;
-  final double categoryShare;
+    final String country;
+    final double totalSales;
 
-  SalesData({
-    required this.date,
-    required this.month,
-    required this.year,
-    required this.product,
-    required this.city,
-    required this.sales,
-    required this.profit,
-    required this.categoryShare,
-  });
+    SalesData({
+        required this.country,
+        required this.totalSales,
+    });
 
-  get value => null;
+    // Factory method buat nge-buat instance dari map (JSON object)
+    factory SalesData.fromJson(Map<String, dynamic> json) => SalesData(
+        country: json["country"],
+        totalSales: double.parse(json["total_sales"]), // Kita parse ke double biar bisa dipake di chart
+    );
+
+    // Method buat nge-convert instance ke map
+    Map<String, dynamic> toJson() => {
+        "country": country,
+        "total_sales": totalSales,
+    };
 }
-
-List<SalesData> dummyData = [
-  SalesData(date: '1', month: 'Jan', year: '2025', product: 'Electronics', city: 'Jakarta', sales: 10, profit: 5, categoryShare: 25),
-  SalesData(date: '2', month: 'Jan', year: '2025', product: 'Clothing', city: 'Bandung', sales: 15, profit: 8, categoryShare: 30),
-  SalesData(date: '3', month: 'Feb', year: '2025', product: 'Food', city: 'Surabaya', sales: 13, profit: 6, categoryShare: 20),
-  SalesData(date: '4', month: 'Feb', year: '2024', product: 'Electronics', city: 'Jakarta', sales: 17, profit: 10, categoryShare: 15),
-  SalesData(date: '5', month: 'Mar', year: '2024', product: 'Clothing', city: 'Bandung', sales: 12, profit: 7, categoryShare: 10),
-];

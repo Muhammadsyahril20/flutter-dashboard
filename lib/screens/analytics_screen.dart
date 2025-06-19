@@ -1,8 +1,12 @@
+// lib/screens/analytics_screen.dart
+
 import 'package:flutter/material.dart';
-import '../models/sales_data.dart'; // Pastikan path ini sesuai
-import '../widgets/bar_chart_widget.dart'; // Bar chart
-import '../widgets/line_chart_widget.dart'; // Line chart
-import '../widgets/pie_chart_widget.dart'; // Pie chart
+import 'package:multi_select_flutter/multi_select_flutter.dart';
+import '../controller/sales_controller.dart';
+import '../models/sales_data.dart';
+import '../models/profit_data.dart'; // <-- IMPORT MODEL PROFIT
+import '../widgets/bar_chart_widget.dart';
+import '../widgets/line_chart_widget.dart'; // <-- IMPORT WIDGET PROFIT LINE CHART
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -12,313 +16,250 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  String? selectedDate;
-  String? selectedMonth;
-  String? selectedYear;
+  final SalesController _controller = SalesController();
+  
+  // State for Sales by Country (Bar Chart)
+  late Future<List<SalesData>> _salesDataFuture;
+  List<SalesData> _allSalesData = [];
+  List<SalesData> _filteredSalesData = [];
+  List<Object?> _selectedCountries = [];
 
-  final List<String> dates = List.generate(31, (index) => '${index + 1}');
-  final List<String> months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
-  final List<String> years = ['2023', '2024', '2025'];
+  // --- NEW STATE FOR PROFIT TREND (LINE CHART) ---
+  late Future<List<ProfitData>> _profitDataFuture;
+  List<ProfitData> _allProfitData = [];
+  List<ProfitData> _filteredProfitData = [];
+  List<String> _availableYears = [];
+  String? _selectedYear;
+  bool _isLoadingProfit = true; // Loading state for profit chart
 
-  List<SalesData> getFilteredData() {
-    return dummyData.where((data) {
-      bool matches = true;
-      if (selectedDate != null) matches &= data.date == selectedDate;
-      if (selectedMonth != null) matches &= data.month == selectedMonth;
-      if (selectedYear != null) matches &= data.year == selectedYear;
-      return matches;
-    }).toList();
+  @override
+  void initState() {
+    super.initState();
+    // Fetch data for both charts when the screen initializes
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    // Fetch sales data
+    _salesDataFuture = _controller.fetchSalesData().then((data) {
+      if(mounted) {
+        setState(() {
+          _allSalesData = data;
+          _filteredSalesData = data; // Initially, show all data
+          _selectedCountries = data.map((d) => d.country).toList(); // Select all by default
+        });
+      }
+      return data;
+    });
+
+    // --- FETCH PROFIT DATA ---
+    _profitDataFuture = _controller.fetchProfitSummary().then((data) {
+      // Get unique years from the data and sort them
+      final years = data.map((d) => d.year.toString()).toSet().toList();
+      years.sort((a, b) => b.compareTo(a)); // Sort from newest to oldest
+
+      if(mounted) {
+        setState(() {
+          _allProfitData = data;
+          _availableYears = years;
+          // Set default filter to the most recent year
+          if (_availableYears.isNotEmpty) {
+            _selectedYear = _availableYears.first;
+          }
+          _isLoadingProfit = false; // Profit data loaded
+          _filterProfitData(); // Immediately filter the data for the default year
+        });
+      }
+      return data;
+    });
+  }
+  
+  // Filter function for sales data
+  void _filterSalesData() {
+    setState(() {
+      if (_selectedCountries.isEmpty) {
+        _filteredSalesData = _allSalesData;
+      } else {
+        _filteredSalesData = _allSalesData
+            .where((data) => _selectedCountries.contains(data.country))
+            .toList();
+      }
+    });
+  }
+
+  // --- NEW FILTER FUNCTION FOR PROFIT DATA ---
+  void _filterProfitData() {
+    setState(() {
+      if (_selectedYear == null) {
+        _filteredProfitData = _allProfitData; // If no year is selected, show all
+      } else {
+        _filteredProfitData = _allProfitData
+            .where((data) => data.year.toString() == _selectedYear)
+            .toList();
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredData = getFilteredData();
-
-    // Agregasi data untuk KPI
-    final totalSales = filteredData.isNotEmpty
-        ? filteredData.map((d) => d.sales).reduce((a, b) => a + b).toStringAsFixed(2)
-        : '0.00';
-    final totalProfit = filteredData.isNotEmpty
-        ? filteredData.map((d) => d.profit).reduce((a, b) => a + b).toStringAsFixed(2)
-        : '0.00';
-    final avgCategoryShare = filteredData.isNotEmpty
-        ? (filteredData.map((d) => d.categoryShare).reduce((a, b) => a + b) / filteredData.length).toStringAsFixed(2)
-        : '0.00';
-    final topProduct = filteredData.isNotEmpty
-        ? filteredData.reduce((a, b) => a.sales > b.sales ? a : b).product
-        : 'N/A';
-    final topCity = filteredData.isNotEmpty
-        ? filteredData.reduce((a, b) => a.sales > b.sales ? a : b).city
-        : 'N/A';
-
-    final kpiData = {
-      'Total Sales': '$totalSales M',
-      'Total Profit': '$totalProfit K',
-      'Avg Category Share': '$avgCategoryShare %',
-      'Top Product': topProduct,
-      'Top City': topCity,
-    };
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales Analytics'),
+        title: const Text('Sales & Profit Analytics'),
         centerTitle: true,
-        elevation: 2,
         backgroundColor: Colors.purple[700],
         titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
+            color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // KPI Cards Section (2 atas, 3 bawah)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildKpiCard(kpiData.entries.elementAt(0), 0, [
-                      Colors.orange,
-                      Colors.red,
-                      Colors.green,
-                      Colors.blue,
-                      Colors.purple,
-                    ]),
-                    _buildKpiCard(kpiData.entries.elementAt(1), 1, [
-                      Colors.orange,
-                      Colors.red,
-                      Colors.green,
-                      Colors.blue,
-                      Colors.purple,
-                    ]),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildKpiCard(kpiData.entries.elementAt(2), 2, [
-                      Colors.orange,
-                      Colors.red,
-                      Colors.green,
-                      Colors.blue,
-                      Colors.purple,
-                    ]),
-                    _buildKpiCard(kpiData.entries.elementAt(3), 3, [
-                      Colors.orange,
-                      Colors.red,
-                      Colors.green,
-                      Colors.blue,
-                      Colors.purple,
-                    ]),
-                    _buildKpiCard(kpiData.entries.elementAt(4), 4, [
-                      Colors.orange,
-                      Colors.red,
-                      Colors.green,
-                      Colors.blue,
-                      Colors.purple,
-                    ]),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // Filter Section
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Filters',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blueGrey,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8.0,
-                      runSpacing: 8.0,
-                      children: [
-                        _buildDropdown('Date', dates, selectedDate, (value) {
-                          setState(() => selectedDate = value);
-                        }),
-                        _buildDropdown('Month', months, selectedMonth, (value) {
-                          setState(() => selectedMonth = value);
-                        }),
-                        _buildDropdown('Year', years, selectedYear, (value) {
-                          setState(() => selectedYear = value);
-                        }),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Bar Chart Section
-            const Text(
-              'Daily Sales',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.blueGrey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: SizedBox(
-                  height: 200,
-                  child: BarChartWidget(filteredData: filteredData),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Line Chart Section
-            const Text(
-              'Profit Trend',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.blueGrey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: SizedBox(
-                  height: 200,
-                  child: LineChartWidget(filteredData: filteredData),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Pie Chart Section
-            const Text(
-              'Category Share',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.blueGrey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: SizedBox(
-                  height: 200,
-                  child: PieChartWidget(filteredData: filteredData),
-                ),
-              ),
-            ),
-          ],
+      body: RefreshIndicator(
+        onRefresh: _fetchData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // --- Sales by Country Section ---
+              _buildSalesSection(),
+              const SizedBox(height: 24),
+              
+              // --- Profit Trend Section ---
+              _buildProfitSection(),
+            ],
+          ),
         ),
       ),
       backgroundColor: Colors.grey.shade100,
     );
   }
 
-  Widget _buildDropdown(String label, List<String> items, String? value, ValueChanged<String?> onChanged) {
-    return SizedBox(
-      width: 120,
-      child: DropdownButtonFormField<String>(
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: const TextStyle(color: Colors.blueGrey),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-        value: value,
-        items: [
-          const DropdownMenuItem<String>(
-            value: null,
-            child: Text('All'),
-          ),
-          ...items.map((item) => DropdownMenuItem<String>(
-                value: item,
-                child: Text(item),
-              )),
-        ],
-        onChanged: onChanged,
-      ),
+  // Widget for the entire "Sales by Country" section
+  Widget _buildSalesSection() {
+    return FutureBuilder<List<SalesData>>(
+      future: _salesDataFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && _allSalesData.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading sales: ${snapshot.error}'));
+        }
+        if (_allSalesData.isEmpty) {
+          return const Center(child: Text('No sales data available.'));
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Sales by Country', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+            const SizedBox(height: 8),
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    _buildCountryFilter(),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: 300,
+                      child: BarChartWidget(salesData: _filteredSalesData),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildKpiCard(MapEntry<String, String> entry, int index, List<Color> colors) {
-    return Card(
-      color: colors[index % colors.length],
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: SizedBox(
-        width: (MediaQuery.of(context).size.width - 36) / 2, // Sesuaikan untuk 2 card
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                entry.key,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
+  // Widget for the entire "Profit Trend" section
+  Widget _buildProfitSection() {
+    if (_isLoadingProfit) {
+       return const Center(child: CircularProgressIndicator());
+    }
+     if (_allProfitData.isEmpty) {
+        return const Center(child: Text('No profit data available.'));
+      }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Profit Trend', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+        const SizedBox(height: 8),
+        Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                _buildYearFilter(),
+                const SizedBox(height: 20),
+                SizedBox(
+                  height: 250,
+                  child: _filteredProfitData.isEmpty
+                    ? const Center(child: Text('No profit data for the selected year.'))
+                    : ProfitLineChartWidget(profitData: _filteredProfitData),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                entry.value,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
+      ],
+    );
+  }
+
+  // Filter widget for countries
+  Widget _buildCountryFilter() {
+    final countryItems = _allSalesData
+        .map((data) => MultiSelectItem<String>(data.country, data.country))
+        .toList();
+
+    return MultiSelectDialogField(
+      items: countryItems,
+      title: const Text("Select Countries"),
+      selectedColor: Colors.purple,
+      initialValue: _selectedCountries,
+      decoration: BoxDecoration(
+        color: Colors.purple.withOpacity(0.1),
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        border: Border.all(color: Colors.purple, width: 2),
       ),
+      buttonIcon: const Icon(Icons.filter_list, color: Colors.purple),
+      buttonText: Text("Filter by Country", style: TextStyle(color: Colors.purple[800], fontSize: 16)),
+      onConfirm: (results) {
+        setState(() {
+          _selectedCountries = results.cast<Object?>();
+        });
+        _filterSalesData();
+      },
+    );
+  }
+
+  // --- NEW FILTER WIDGET FOR YEAR ---
+  Widget _buildYearFilter() {
+    return DropdownButtonFormField<String>(
+      decoration: InputDecoration(
+        labelText: 'Select Year',
+        labelStyle: const TextStyle(color: Colors.blueGrey),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        filled: true,
+        fillColor: Colors.grey.shade200,
+      ),
+      value: _selectedYear,
+      items: _availableYears.map((year) => DropdownMenuItem<String>(
+            value: year,
+            child: Text(year),
+          )).toList(),
+      onChanged: (value) {
+        if (value != null) {
+          setState(() => _selectedYear = value);
+          _filterProfitData();
+        }
+      },
     );
   }
 }
-
-// Dummy data (udah sesuai model lo)
-List<SalesData> dummyData = [
-  SalesData(date: '1', month: 'Jan', year: '2025', product: 'Electronics', city: 'Jakarta', sales: 10, profit: 5, categoryShare: 25),
-  SalesData(date: '2', month: 'Jan', year: '2025', product: 'Clothing', city: 'Bandung', sales: 15, profit: 8, categoryShare: 30),
-  SalesData(date: '3', month: 'Feb', year: '2025', product: 'Food', city: 'Surabaya', sales: 13, profit: 6, categoryShare: 20),
-  SalesData(date: '4', month: 'Feb', year: '2024', product: 'Electronics', city: 'Jakarta', sales: 17, profit: 10, categoryShare: 15),
-  SalesData(date: '5', month: 'Mar', year: '2024', product: 'Clothing', city: 'Bandung', sales: 12, profit: 7, categoryShare: 10),
-];
