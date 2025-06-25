@@ -7,11 +7,11 @@ import '../controller/sales_controller.dart';
 import '../models/sales_data.dart';
 import '../models/profit_data.dart';
 import '../models/top_product.dart';
-import '../models/segement_data.dart'; // <-- IMPORT MODEL BARU
+import '../models/segement_data.dart';
 import '../widgets/bar_chart_widget.dart';
 import '../widgets/line_chart_widget.dart';
 import '../widgets/top_product.dart';
-import '../widgets/SegmentPieChartWidget.dart'; // <-- IMPORT WIDGET PIE CHART BARU
+import '../widgets/SegmentPieChartWidget.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -40,8 +40,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<TopProductData> _allTopProducts = [];
   bool _isLoadingTopProducts = true;
 
-  // --- STATE BARU UNTUK PROFIT BY SEGMENT ---
-  List<SegmentProfitData> _segmentProfitData = [];
+  // --- STATE UNTUK PROFIT BY SEGMENT ---
+  List<SegmentProfitData> _allSegmentProfitData = [];
+  List<SegmentProfitData> _filteredSegmentProfitData = [];
+  List<Object?> _selectedSegments = [];
   bool _isLoadingSegmentProfit = true;
 
   @override
@@ -56,11 +58,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _isLoadingSales = true;
         _isLoadingProfit = true;
         _isLoadingTopProducts = true;
-        _isLoadingSegmentProfit = true; // Set loading true untuk section baru
+        _isLoadingSegmentProfit = true;
       });
     }
 
-    // Fetch semua data secara bersamaan
     await Future.wait([
       // Fetch Sales Data
       _controller.fetchSalesData().then((data) {
@@ -68,7 +69,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           setState(() {
             _allSalesData = data;
             _filteredSalesData = data;
-            _selectedCountries = data.map((d) => d.country).toList();
+            _selectedCountries = data.map((d) => d.country).toSet().toList();
             _isLoadingSales = false;
           });
         }
@@ -104,9 +105,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _controller.fetchProfitBySegment().then((data) {
         if (mounted) {
           setState(() {
-            // Urutkan berdasarkan profit terbesar
             data.sort((a, b) => b.totalProfit.compareTo(a.totalProfit));
-            _segmentProfitData = data;
+            _allSegmentProfitData = data;
+            _filteredSegmentProfitData = data; // Init data terfilter
+            _selectedSegments = data.map((d) => d.segment).toSet().toList(); // Init filter
             _isLoadingSegmentProfit = false;
           });
         }
@@ -116,27 +118,29 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   
   void _filterSalesData() {
     setState(() {
-      if (_selectedCountries.isEmpty) {
-        _filteredSalesData = _allSalesData;
-      } else {
-        _filteredSalesData = _allSalesData
-            .where((data) => _selectedCountries.contains(data.country))
-            .toList();
-      }
+      _filteredSalesData = _selectedCountries.isEmpty
+          ? _allSalesData
+          : _allSalesData.where((data) => _selectedCountries.contains(data.country)).toList();
     });
   }
 
   void _filterProfitData() {
     setState(() {
-      if (_selectedYear == null) {
-        _filteredProfitData = _allProfitData;
-      } else {
-        _filteredProfitData = _allProfitData
-            .where((data) => data.year.toString() == _selectedYear)
-            .toList();
-      }
+      _filteredProfitData = _selectedYear == null
+          ? _allProfitData
+          : _allProfitData.where((data) => data.year.toString() == _selectedYear).toList();
     });
   }
+  
+  // --- FUNGSI BARU UNTUK FILTER SEGMENT ---
+  void _filterSegmentData() {
+    setState(() {
+      _filteredSegmentProfitData = _selectedSegments.isEmpty
+          ? _allSegmentProfitData
+          : _allSegmentProfitData.where((data) => _selectedSegments.contains(data.segment)).toList();
+    });
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -160,7 +164,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               const SizedBox(height: 24),
               _buildProfitSection(),
               const SizedBox(height: 24),
-              _buildSegmentProfitSection(), // <-- PANGGIL WIDGET SECTION BARU DI SINI
+              _buildSegmentProfitSection(), // Panggil widget section baru
               const SizedBox(height: 24),
               _buildTopProductsSection(), 
             ],
@@ -171,12 +175,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  // --- WIDGET BARU UNTUK SECTION PROFIT BY SEGMENT ---
+  // --- WIDGET SECTION PROFIT BY SEGMENT (DIPERBARUI) ---
   Widget _buildSegmentProfitSection() {
     if (_isLoadingSegmentProfit) {
         return const Center(heightFactor: 5, child: CircularProgressIndicator());
     }
-    if (_segmentProfitData.isEmpty) {
+    if (_allSegmentProfitData.isEmpty) {
         return const Center(child: Text('No segment profit data available.'));
     }
     
@@ -190,13 +194,56 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
-            // Gunakan widget pie chart yang baru kita buat
-            child: SegmentPieChartWidget(segmentData: _segmentProfitData),
+            child: Column( // Bungkus dengan Column
+              children: [
+                _buildSegmentFilter(), // Tambahkan filter di sini
+                const SizedBox(height: 20),
+                // Cek data yang sudah difilter
+                _filteredSegmentProfitData.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 40.0),
+                      child: Center(child: Text('No data for selected segments.')),
+                    )
+                  // Gunakan data yang sudah difilter
+                  : SegmentPieChartWidget(segmentData: _filteredSegmentProfitData),
+              ],
+            ),
           ),
         ),
       ],
     );
   }
+
+  // --- WIDGET BARU UNTUK FILTER SEGMENT ---
+  Widget _buildSegmentFilter() {
+    final segmentItems = _allSegmentProfitData
+        .map((data) => MultiSelectItem<String>(data.segment, data.segment))
+        .toSet() // Pakai toSet() untuk memastikan tidak ada duplikat
+        .toList();
+
+    return MultiSelectDialogField(
+      items: segmentItems,
+      title: const Text("Select Segments"),
+      selectedColor: Colors.blue[700],
+      initialValue: _selectedSegments.cast<String>(),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.1),
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        border: Border.all(color: Colors.blue, width: 2),
+      ),
+      buttonIcon: Icon(Icons.pie_chart, color: Colors.blue[700]),
+      buttonText: Text("Filter by Segment", style: TextStyle(color: Colors.blue[800], fontSize: 16)),
+      onConfirm: (results) {
+        setState(() {
+          _selectedSegments = results.cast<Object?>();
+        });
+        _filterSegmentData();
+      },
+    );
+  }
+
+  // Widget _buildTopProductsSection, _buildSalesSection, _buildProfitSection, etc. (Tidak ada perubahan)
+  // ... (Sisa kodenya sama seperti yang kamu punya)
 
   // Widget for Top Products Section (already exists)
   Widget _buildTopProductsSection() {
@@ -223,7 +270,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ],
     );
   }
-  
+
   // Widget for the entire "Sales by Country" section (already exists)
   Widget _buildSalesSection() {
     if (_isLoadingSales) {
@@ -362,6 +409,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildCountryFilter() {
     final countryItems = _allSalesData
         .map((data) => MultiSelectItem<String>(data.country, data.country))
+        .toSet()
         .toList();
 
     return MultiSelectDialogField(
